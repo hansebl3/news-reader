@@ -7,7 +7,7 @@ DATA_USAGE_FILE = "data_usage.json"
 
 class DataUsageTracker:
     def __init__(self):
-        # Initialize session state keys if not present
+        # 세션 상태 키가 없으면 초기화
         if 'data_usage_rx' not in st.session_state:
             st.session_state.data_usage_rx = 0
         if 'data_usage_tx' not in st.session_state:
@@ -18,7 +18,7 @@ class DataUsageTracker:
             try:
                 with open(DATA_USAGE_FILE, 'r') as f:
                     data = json.load(f)
-                    # Check if date matches today
+                    # 날짜가 오늘인지 확인
                     if data.get('date') == datetime.now().strftime('%Y-%m-%d'):
                         return data
             except:
@@ -33,29 +33,29 @@ class DataUsageTracker:
             pass
 
     def add_rx(self, bytes_count):
-        """Add received bytes"""
+        """수신 바이트 추가"""
         if bytes_count:
-            # Update Session (Transient)
+            # 세션 업데이트 (일시적)
             st.session_state.data_usage_rx += bytes_count
             
-            # Update File (Persistent)
+            # 파일 업데이트 (영구적)
             data = self._load_data()
             data['rx'] += bytes_count
             self._save_data(data)
 
     def add_tx(self, bytes_count):
-        """Add transmitted bytes"""
+        """송신 바이트 추가"""
         if bytes_count:
             st.session_state.data_usage_tx += bytes_count
             
-            # Update File
+            # 파일 업데이트
             data = self._load_data()
             data['tx'] += bytes_count
             self._save_data(data)
 
     def get_stats(self):
-        """Get stats (Today's Total)"""
-        # We want to display TOTAL usage for the day, not just this session
+        """통계 가져오기 (오늘 전체)"""
+        # 이 세션뿐만 아니라 오늘의 전체 사용량을 표시하고 싶습니다.
         data = self._load_data()
         rx_bytes = data['rx']
         tx_bytes = data['tx']

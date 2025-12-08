@@ -6,10 +6,10 @@ import time
 import queue
 import threading
 
-# Page Setup
+# 페이지 설정
 st.set_page_config(page_title="News Reader", page_icon=None, layout="wide")
 
-# CSS to left-align buttons and adjust mobile headers
+# 버튼을 왼쪽 정렬하고 모바일 헤더를 조정하기 위한 CSS
 st.markdown("""
 <style>
 div[data-testid="stMainBlockContainer"] .stButton button {
@@ -27,7 +27,7 @@ h2 { font-size: 1.5rem !important; }
 
 st.title("Text News Reader")
 
-# Initialize Managers (Persist in Session State)
+# 매니저 초기화 (세션 상태에 유지)
 if 'llm_manager' not in st.session_state:
     st.session_state.llm_manager = LLMManager()
 if 'fetcher' not in st.session_state:
@@ -40,9 +40,9 @@ fetcher = st.session_state.fetcher
 db = st.session_state.db
 
 def auto_sum_worker(news_items, model, result_queue, stop_event, fetcher_instance):
-    """Background thread to fetch text and summarize news"""
+    """뉴스 텍스트를 가져오고 요약하는 백그라운드 스레드"""
     
-    # Relaxed GPU check
+    # 완화된 GPU 체크
     pass 
         
     for item in news_items:
@@ -52,11 +52,11 @@ def auto_sum_worker(news_items, model, result_queue, stop_event, fetcher_instanc
         link = item['link']
         
         try:
-            # 1. Check DB cache first
+            # 1. DB 캐시 먼저 확인
             db_local = NewsDatabase()
             cached_data = db_local.get_summary_from_cache(link)
             if cached_data:
-                # Wrap it to match generate_summary return format
+                # generate_summary 반환 형식에 맞게 래핑
                 formatted_result = {
                     'text': cached_data['summary'],
                     'meta': {
@@ -70,28 +70,28 @@ def auto_sum_worker(news_items, model, result_queue, stop_event, fetcher_instanc
                 result_queue.put((link, formatted_result))
                 continue
             
-            # 2. Fetch Text (Background)
+            # 2. 텍스트 가져오기 (백그라운드)
             text = fetcher_instance.get_full_text(link)
             
-            # 3. Generate {text, meta}
+            # 3. {text, meta} 생성
             summary_data = fetcher_instance.generate_summary(text, model, link=link)
             
-            # Add full text to result so main thread can cache it in session_state
+            # 메인 스레드가 세션 상태에 캐시할 수 있도록 전체 텍스트를 결과에 추가
             if summary_data:
                 summary_data['full_text'] = text
                 result_queue.put((link, summary_data))
             
-            time.sleep(1) # Yield
+            time.sleep(1) # 양보 (Yield)
         except Exception as e:
             print(f"Auto sum error: {e}")
 
-# Sidebar
+# 사이드바
 with st.sidebar:
     st.header("Settings")
     mode = st.radio("View Mode", ["Live News", "Saved News"])
     
     if mode == "Live News":
-        # Source Selection
+        # 소스 선택
         config = llm_manager.get_config()
         default_source = config.get("default_source")
         source_options = list(fetcher.sources.keys())
@@ -108,7 +108,7 @@ with st.sidebar:
             on_change=on_source_change
         )
         
-        # Refresh Interval
+        # 새로고침 간격
         refresh_options = {
             "Manual": 0,
             "1 Minute": 60,
@@ -119,7 +119,7 @@ with st.sidebar:
         refresh_label = st.selectbox(
             "Refresh Interval",
             list(refresh_options.keys()),
-            index=3, # Default 5 min
+            index=3, # 기본 5분
             key="refresh_interval_label"
         )
         refresh_interval = refresh_options[refresh_label]
@@ -127,7 +127,7 @@ with st.sidebar:
         st.markdown("---")
         st.caption("AI Configuration")
         
-        # Auto Summary Toggle
+        # 자동 요약 토글
         if 'auto_summary_enabled' not in st.session_state:
             st.session_state.auto_summary_enabled = config.get("auto_summary_enabled", False)
 
@@ -136,7 +136,7 @@ with st.sidebar:
 
         st.toggle("Auto Summary", key="auto_summary_enabled", on_change=on_summary_toggle)
 
-        # Server Selection
+        # 서버 선택
         server_options = ["remote", "local"]
         current_host_type = llm_manager.selected_host_type
         host_index = server_options.index(current_host_type) if current_host_type in server_options else 0
@@ -156,7 +156,7 @@ with st.sidebar:
              st.session_state.available_models = llm_manager.get_models()
              st.rerun()
 
-        # Model Selection
+        # 모델 선택
         if 'available_models' not in st.session_state:
              st.session_state.available_models = llm_manager.get_models()
         
@@ -243,17 +243,17 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-# Main Content
+# 메인 콘텐츠
 if mode == "Live News":
     
-    # Refresh Logic
+    # 새로고침 로직
     should_refresh = False
     
-    # Manual Refresh Button (Main Area)
+    # 수동 새로고침 버튼 (메인 영역)
     if st.button("🔄 Refresh Feed"):
         should_refresh = True
         
-    # Auto Refresh Timer
+    # 자동 새로고침 타이머
     if refresh_interval > 0:
         if 'last_update' in st.session_state:
             elapsed = time.time() - st.session_state.last_update
@@ -270,7 +270,7 @@ if mode == "Live News":
             
             if new_items is None:
                 st.toast("No new articles found.")
-                st.session_state.last_update = time.time() # Reset timer even if no change
+                st.session_state.last_update = time.time() # 변경 사항이 없어도 타이머 재설정
             else:
                 st.session_state.news_items = new_items
                 st.session_state.current_source = source
@@ -278,7 +278,7 @@ if mode == "Live News":
                 if 'stop_event' in st.session_state:
                     st.session_state.stop_event.set()
                     
-                # Prefetch summaries from DB
+                # DB에서 요약 미리 가져오기
                 st.session_state.summaries = {}
                 for item in st.session_state.news_items:
                     cached = db.get_summary_from_cache(item['link'])
@@ -297,7 +297,7 @@ if mode == "Live News":
     if not st.session_state.news_items:
         st.info("No news items found or unable to fetch.")
     
-    # Thread Management
+    # 스레드 관리
     auto_sum_on = st.session_state.get('auto_summary_enabled', False)
     selected_model = st.session_state.get('selected_model')
     
@@ -340,7 +340,7 @@ if mode == "Live News":
                 while True:
                     link, summary_data = st.session_state.result_queue.get_nowait()
                     st.session_state.summaries[link] = summary_data
-                    # Cache full text if returned
+                    # 전체 텍스트가 반환되면 캐시
                     if 'full_text' in summary_data and summary_data['full_text']:
                         st.session_state.fetched_texts[link] = summary_data['full_text']
             except queue.Empty:
