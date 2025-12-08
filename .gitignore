@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+config.json
+llm_config.json
+.env
+.DS_Store

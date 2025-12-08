@@ -1,0 +1,8 @@
+{
+    "default_model": "qwen2.5:1.5b-instruct-q4_K_M",
+    "auto_summary_enabled": true,
+    "default_source": "GeekNews",
+    "selected_host_type": "local",
+    "default_model_local": "llama3.1",
+    "default_model_remote": "llama3.1"
+}

@@ -1,0 +1,8 @@
+{
+    "news_db": {
+        "host": "172.17.0.2",
+        "user": "root",
+        "password": "YOUR_PASSWORD_HERE",
+        "database": "news_db"
+    }
+}
