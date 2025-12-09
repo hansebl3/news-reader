@@ -25,7 +25,7 @@ h2 { font-size: 1.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("Text News Reader")
+
 
 # 매니저 초기화 (세션 상태에 유지)
 if 'llm_manager' not in st.session_state:
@@ -206,12 +206,16 @@ with st.sidebar:
 
     gpu_info = llm_manager.get_gpu_info()
     if gpu_info:
-        count = len(gpu_info)
-        names = set(gpu_info)
-        name_str = ", ".join(names)
-        st.caption(f"**GPU:** {count} Cards Detected ({name_str})")
+        # 에러 메시지가 리스트에 포함된 경우 확인
+        if len(gpu_info) == 1 and any(x in gpu_info[0] for x in ["Error", "SSH", "Key"]):
+             st.caption(f"**GPU Check:** {gpu_info[0]}")
+        else:
+            count = len(gpu_info)
+            names = set(gpu_info)
+            name_str = ", ".join(names)
+            st.caption(f"**GPU:** {count} Cards ({name_str})")
     else:
-        st.caption("**GPU:** Not Detected (SSH Failed)")
+        st.caption("**GPU:** check skipped or empty.")
 
     st.markdown("---")
     st.caption("**Server Data Usage (Today)**")
@@ -243,15 +247,23 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+# 타이틀 및 상단 버튼 (메인 영역)
+col_head_title, col_head_btn = st.columns([0.85, 0.15])
+with col_head_title:
+    st.title("Text News Reader")
+with col_head_btn:
+    manual_refresh = False
+    if mode == "Live News":
+        st.write("") # Vertical spacer
+        st.write("") 
+        if st.button("🔄 Refresh", key="top_refresh_btn", help="Fetch new feed"):
+            manual_refresh = True
+
 # 메인 콘텐츠
 if mode == "Live News":
     
     # 새로고침 로직
-    should_refresh = False
-    
-    # 수동 새로고침 버튼 (메인 영역)
-    if st.button("🔄 Refresh Feed"):
-        should_refresh = True
+    should_refresh = manual_refresh
         
     # 자동 새로고침 타이머
     if refresh_interval > 0:
@@ -368,7 +380,26 @@ if mode == "Live News":
 
                 # Show Summary
                 if item['link'] in st.session_state.summaries:
-                    c_spacer, c_summary = st.columns([0.015, 0.985])
+                    c_btn, c_summary = st.columns([0.08, 0.92])
+                    with c_btn:
+                         st.write("") # Vertical alignment spacer
+                         if st.button("🔄", key=f"regen_btn_{i}", help="Regenerate Summary"):
+                             with st.spinner("..."):
+                                 link = item['link']
+                                 # 텍스트가 메모리에 없으면 가져오기
+                                 if link not in st.session_state.fetched_texts:
+                                     st.session_state.fetched_texts[link] = fetcher.get_full_text(link)
+                                 
+                                 full_text = st.session_state.fetched_texts[link]
+                                 model_to_use = st.session_state.get('selected_model')
+                                 
+                                 if model_to_use:
+                                    summary_data = fetcher.generate_summary(full_text, model=model_to_use, link=link, force_refresh=True)
+                                    st.session_state.summaries[link] = summary_data
+                                    st.rerun()
+                                 else:
+                                    st.error("No Model")
+
                     with c_summary:
                         data = st.session_state.summaries[item['link']]
                         if isinstance(data, dict):
@@ -383,18 +414,8 @@ if mode == "Live News":
                     st.markdown("---")
                     full_text = st.session_state.fetched_texts.get(item['link'], "")
                     
-                    col_regen, col_save_area = st.columns([1, 3])
-                    with col_regen:
-                         if st.button("Regen", key=f"sum_{i}"):
-                            with st.spinner(f"Asking Local LLM..."):
-                                model_to_use = st.session_state.get('selected_model')
-                                if model_to_use:
-                                    summary_data = fetcher.generate_summary(full_text, model=model_to_use, link=item['link'], force_refresh=True)
-                                    st.session_state.summaries[item['link']] = summary_data
-                                    st.rerun()
-                                else:
-                                    st.error("No AI Model.")
-
+                    # Regen 버튼이 있던 자리는 제거하고 저장 버튼만 남김
+                    col_save_area = st.container()
                     with col_save_area:
                         c_comment, c_btn = st.columns([4, 1])
                         with c_comment:

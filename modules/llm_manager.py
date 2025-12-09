@@ -11,12 +11,12 @@ logger = logging.getLogger(__name__)
 class LLMManager:
     def __init__(self):
         self.host_map = {
-            "remote": "http://2080ti:11434",
+            "remote": "http://2080ti.tail8b1392.ts.net:11434",
             "local": "http://172.17.0.4:11434"
         }
         self.hosts = list(self.host_map.values())
-        self.ssh_key_path = '/home/ross/.ssh/id_ed25519'
-        self.ssh_host = 'ross@2080ti'
+        self.ssh_key_path = os.path.expanduser('~/.ssh/id_ed25519')
+        self.ssh_host = 'ross@2080ti.tail8b1392.ts.net'
         
         # 설정 로드
         self.config = self.get_config()
@@ -60,8 +60,9 @@ class LLMManager:
                          return True, "연결됨 (로컬) - 모델 없음. 자동 풀링 예정."
                 return True, f"{self.current_host}에 연결됨"
             return False, f"상태 코드: {resp.status_code}"
-        except requests.exceptions.RequestException:
-             return False, f"연결 실패 ({self.current_host})"
+        except requests.exceptions.RequestException as e:
+             logger.error(f"Connection error to {self.current_host}: {e}")
+             return False, f"연결 실패: {str(e)}"
 
     def get_models(self):
         try:
@@ -165,6 +166,9 @@ class LLMManager:
                  pass
              return ["Local CPU/GPU (Ollama)"]
 
+        if not os.path.exists(self.ssh_key_path):
+            return [f"SSH Key Not Found: {self.ssh_key_path}"]
+
         try:
             cmd = [
                 'ssh', 
@@ -180,10 +184,12 @@ class LLMManager:
                 # Output: "GeForce RTX 2080 Ti\nGeForce RTX 2080 Ti"
                 gpus = [line.strip() for line in result.stdout.strip().split('\n') if line.strip()]
                 return gpus
-            return []
+            else:
+                logger.warning(f"SSH failed: {result.stderr}")
+                return [f"SSH Error: {result.stderr.strip()[:20]}..."]
         except Exception as e:
             logger.error(f"GPU Info Error: {e}")
-            return []
+            return [f"Error: {str(e)}"]
 
     def get_config(self):
         config_path = "llm_config.json"
