@@ -1,7 +1,9 @@
 import streamlit as st
-import pandas as pd
+
 from modules.news_manager import NewsFetcher, NewsDatabase
 from modules.llm_manager import LLMManager
+from modules.workers import auto_sum_worker
+from modules.ui_components import render_sidebar
 import time
 import queue
 import threading
@@ -39,229 +41,42 @@ llm_manager = st.session_state.llm_manager
 fetcher = st.session_state.fetcher
 db = st.session_state.db
 
-def auto_sum_worker(news_items, model, result_queue, stop_event, fetcher_instance):
-    """뉴스 텍스트를 가져오고 요약하는 백그라운드 스레드"""
-    
-    # 완화된 GPU 체크
-    pass 
-        
-    for item in news_items:
-        if stop_event.is_set():
-            break
-            
-        link = item['link']
-        
-        try:
-            # 1. DB 캐시 먼저 확인
-            db_local = NewsDatabase()
-            cached_data = db_local.get_summary_from_cache(link)
-            if cached_data:
-                # generate_summary 반환 형식에 맞게 래핑
-                formatted_result = {
-                    'text': cached_data['summary'],
-                    'meta': {
-                        'source': 'Cache',
-                        'time': 'N/A',
-                        'model': cached_data.get('model', 'Unknown'),
-                        'host': 'DB'
-                    },
-                    'full_text': None
-                }
-                result_queue.put((link, formatted_result))
-                continue
-            
-            # 2. 텍스트 가져오기 (백그라운드)
-            text = fetcher_instance.get_full_text(link)
-            
-            # 3. {text, meta} 생성
-            summary_data = fetcher_instance.generate_summary(text, model, link=link)
-            
-            # 메인 스레드가 세션 상태에 캐시할 수 있도록 전체 텍스트를 결과에 추가
-            if summary_data:
-                summary_data['full_text'] = text
-                result_queue.put((link, summary_data))
-            
-            time.sleep(1) # 양보 (Yield)
-        except Exception as e:
-            print(f"Auto sum error: {e}")
+
 
 # 사이드바
-with st.sidebar:
-    st.header("Settings")
-    mode = st.radio("View Mode", ["Live News", "Saved News"])
+# 사이드바 렌더링 및 설정 가져오기
+mode, refresh_interval, config = render_sidebar(llm_manager, fetcher)
+
+# 타이틀 및 상단 버튼 (메인 영역)
+st.title("Text News Reader")
+
+# 메인 콘텐츠
+if mode == "Live News":
     
-    if mode == "Live News":
-        # 소스 선택
-        config = llm_manager.get_config()
-        default_source = config.get("default_source")
-        source_options = list(fetcher.sources.keys())
-        source_index = source_options.index(default_source) if default_source in source_options else 0
+    # 소스 선택 및 새로고침 버튼
+    # config는 sidebar 상단에서 이미 로드됨
+    default_source = config.get("default_source")
+    source_options = list(fetcher.sources.keys())
+    source_index = source_options.index(default_source) if default_source in source_options else 0
 
-        def on_source_change():
-             llm_manager.update_config("default_source", st.session_state.current_source_selection)
-
+    def on_source_change():
+            llm_manager.update_config("default_source", st.session_state.current_source_selection)
+    
+    col_sel, col_btn = st.columns([0.9, 0.1])
+    with col_sel:
         source = st.selectbox(
             "Select Source", 
             source_options, 
             index=source_index, 
             key="current_source_selection",
-            on_change=on_source_change
+            on_change=on_source_change,
+            label_visibility="collapsed",
         )
-        
-        # 새로고침 간격
-        refresh_options = {
-            "Manual": 0,
-            "1 Minute": 60,
-            "3 Minutes": 180,
-            "5 Minutes": 300,
-            "10 Minutes": 600
-        }
-        refresh_label = st.selectbox(
-            "Refresh Interval",
-            list(refresh_options.keys()),
-            index=3, # 기본 5분
-            key="refresh_interval_label"
-        )
-        refresh_interval = refresh_options[refresh_label]
-        
-        st.markdown("---")
-        st.caption("AI Configuration")
-        
-        # 자동 요약 토글
-        if 'auto_summary_enabled' not in st.session_state:
-            st.session_state.auto_summary_enabled = config.get("auto_summary_enabled", False)
-
-        def on_summary_toggle():
-             llm_manager.update_config("auto_summary_enabled", st.session_state.auto_summary_enabled)
-
-        st.toggle("Auto Summary", key="auto_summary_enabled", on_change=on_summary_toggle)
-
-        # 서버 선택
-        server_options = ["remote", "local"]
-        current_host_type = llm_manager.selected_host_type
-        host_index = server_options.index(current_host_type) if current_host_type in server_options else 0
-        
-        selected_server_label = st.radio(
-            "LLM Server",
-            server_options,
-            index=host_index,
-            format_func=lambda x: "Remote (2080ti)" if x == "remote" else "Local (Docker)",
-            key="selected_server_type",
-            disabled=not st.session_state.auto_summary_enabled
-        )
-        
-        if selected_server_label != current_host_type:
-             llm_manager.set_host_type(selected_server_label)
-             st.toast(f"Switched server to {selected_server_label}")
-             st.session_state.available_models = llm_manager.get_models()
-             st.rerun()
-
-        # 모델 선택
-        if 'available_models' not in st.session_state:
-             st.session_state.available_models = llm_manager.get_models()
-        
-        if st.session_state.available_models:
-            default_model = llm_manager.get_context_default_model()
-            default_index = 0
-            if default_model and default_model in st.session_state.available_models:
-                default_index = st.session_state.available_models.index(default_model)
-
-            def on_model_change():
-                llm_manager.set_context_default_model(st.session_state.selected_model)
-
-            selected_model = st.selectbox(
-                "AI Model", 
-                st.session_state.available_models, 
-                index=default_index,
-                key="selected_model",
-                on_change=on_model_change
-            )
-            
-            if 'result_queue' not in st.session_state:
-                st.session_state.result_queue = queue.Queue()
-        else:
-            st.warning("AI Models: Not Connected")
-            st.caption(f"Host: {llm_manager.current_host}")
-            if st.button("Retry Connection"):
-                st.session_state.available_models = llm_manager.get_models()
-                st.rerun()
-            st.session_state.selected_model = None
-
-    st.markdown("---")
-    st.caption("**AI Server Status**")
-    col_stat1, col_stat2 = st.columns([1,1])
-    with col_stat1:
-        if st.button("Check", key="check_ollama", use_container_width=True):
-            st.session_state.available_models = llm_manager.get_models()
-            success, msg = llm_manager.check_connection()
-            if success:
-                st.toast(f"Connected! Found {len(st.session_state.available_models)} models.")
-            else:
-                st.toast(msg)
-    
-    with col_stat2:
-        st.write("") 
-
-    st.caption(f"**Host:** {llm_manager.current_host}")
-
-    gpu_info = llm_manager.get_gpu_info()
-    if gpu_info:
-        # 에러 메시지가 리스트에 포함된 경우 확인
-        if len(gpu_info) == 1 and any(x in gpu_info[0] for x in ["Error", "SSH", "Key"]):
-             st.caption(f"**GPU Check:** {gpu_info[0]}")
-        else:
-            count = len(gpu_info)
-            names = set(gpu_info)
-            name_str = ", ".join(names)
-            st.caption(f"**GPU:** {count} Cards ({name_str})")
-    else:
-        st.caption("**GPU:** check skipped or empty.")
-
-    st.markdown("---")
-    st.caption("**Server Data Usage (Today)**")
-    
-    from modules.metrics_manager import DataUsageTracker
-    tracker = DataUsageTracker()
-    stats = tracker.get_stats()
-    
-    def format_bytes(size):
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size < 1024.0:
-                return f"{size:,.0f} {unit}" if unit == 'B' else f"{size:.2f} {unit}"
-            size /= 1024.0
-        return f"{size:.2f} TB"
-
-    rx_str = format_bytes(stats['rx_bytes'])
-    tx_str = format_bytes(stats['tx_bytes'])
-    total_str = format_bytes(stats['total_bytes'])
-
-    st.markdown(f"""
-    <div style="font_size: 0.8rem; color: #666;">
-        <div style="display: flex; justify-content: space-between;">
-            <span>Rx: <b>{rx_str}</b></span>
-            <span>Tx: <b>{tx_str}</b></span>
-        </div>
-        <div style="margin-top: 4px; font-weight: bold;">
-            Total: {total_str}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# 타이틀 및 상단 버튼 (메인 영역)
-col_head_title, col_head_btn = st.columns([0.85, 0.15])
-with col_head_title:
-    st.title("Text News Reader")
-with col_head_btn:
-    manual_refresh = False
-    if mode == "Live News":
-        st.write("") # Vertical spacer
-        st.write("") 
-        if st.button("🔄 Refresh", key="top_refresh_btn", help="Fetch new feed"):
+    with col_btn:
+        manual_refresh = False
+        if st.button("🔄", key="main_refresh_btn", help="Fetch new feed"):
             manual_refresh = True
 
-# 메인 콘텐츠
-if mode == "Live News":
-    
     # 새로고침 로직
     should_refresh = manual_refresh
         
@@ -273,8 +88,6 @@ if mode == "Live News":
                 should_refresh = True
         else:
             should_refresh = True
-
-    st.header(f"Live Feed: {source}")
     
     if should_refresh or 'current_source' not in st.session_state or st.session_state.current_source != source:
         with st.spinner("Fetching news feed..."):

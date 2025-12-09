@@ -1,5 +1,4 @@
 import feedparser
-import subprocess
 from modules.llm_manager import LLMManager
 from modules.metrics_manager import DataUsageTracker
 import requests
@@ -7,8 +6,7 @@ from bs4 import BeautifulSoup
 import mysql.connector
 import json
 import logging
-from datetime import datetime
-import openai
+from datetime import datetime, timedelta, timezone
 import os
 
 logging.basicConfig(level=logging.INFO)
@@ -355,11 +353,28 @@ class NewsFetcher:
             return []
 
         entries = []
-        for entry in feed.entries[:10]: # 10개로 제한
+        for entry in feed.entries[:5]: # 5개로 제한
+            published = entry.get('published', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            
+            # KST 변환 로직 추가
+            if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                try:
+                    # feedparser는 published_parsed를 UTC struct_time으로 반환함
+                    dt_utc = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                    
+                    # KST (UTC+9)로 변환
+                    kst_tz = timezone(timedelta(hours=9))
+                    dt_kst = dt_utc.astimezone(kst_tz)
+                    
+                    published = dt_kst.strftime('%Y-%m-%d %H:%M:%S')
+                except Exception as e:
+                    # 변환 실패 시 원본 문자열 유지
+                    pass
+
             entries.append({
                 'title': entry.title,
                 'link': entry.link,
-                'published': entry.get('published', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                'published': published,
                 'source': source_name
             })
         return entries
@@ -557,10 +572,4 @@ Summarize the content below into 3 bullet points using KOREAN ONLY.
             }
         }
 
-    def check_ollama_connection(self):
-        """LLMManager 확인으로 전달합니다."""
-        return self.llm_manager.check_connection()
 
-    def get_gpu_info(self):
-        """LLMManager GPU 정보로 전달합니다."""
-        return self.llm_manager.get_gpu_info()
