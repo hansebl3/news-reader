@@ -4,3 +4,7 @@ config.json
 llm_config.json
 .env
 .DS_Store
+
+data_usage.json
+llm_config.json
+data_usage.json
