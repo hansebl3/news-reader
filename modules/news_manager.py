@@ -534,11 +534,11 @@ class NewsFetcher:
 You are a summary assistant. Output ONLY the summary in Korean. Do not say anything else.
 
 ### Instruction:
-Summarize the content below into 3 bullet points using KOREAN ONLY.
-- NO Chinese. NO English.
+Summarize the content below into 3 bullet points.
+- Use English ONLY.
+- Use simple English to read easily.
 - NO introduction (e.g. "Here is the summary").
 - NO conclusion.
-- Format: "- Summary point..."
 
 ### Content:
 {text[:3000]}
