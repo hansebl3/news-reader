@@ -20,4 +20,4 @@ RUN apt-get update && apt-get install -y \
 COPY . .
 
 # 실행 명령어 (포트 8501)
-CMD ["streamlit", "run", "News_Reader.py", "--server.port=8503", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "src/News_Reader.py", "--server.port=8503", "--server.address=0.0.0.0"]
