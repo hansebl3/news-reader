@@ -42,23 +42,24 @@ def render_sidebar(llm_manager, fetcher):
 
             st.toggle("Auto Summary", key="auto_summary_enabled", on_change=on_summary_toggle)
 
-            # 서버 선택
-            server_options = ["remote", "local"]
-            current_host_type = llm_manager.selected_host_type
-            host_index = server_options.index(current_host_type) if current_host_type in server_options else 0
+            # 서버/제공자 선택
+            provider_options = llm_manager.providers
+            current_provider = llm_manager.selected_provider
             
-            selected_server_label = st.radio(
-                "LLM Server",
-                server_options,
-                index=host_index,
-                format_func=lambda x: "Remote (2080ti)" if x == "remote" else "Local (Docker)",
-                key="selected_server_type",
+            p_index = provider_options.index(current_provider) if current_provider in provider_options else 0
+            
+            selected_provider_label = st.radio(
+                "LLM Provider",
+                provider_options,
+                index=p_index,
+                format_func=lambda x: x.upper() if x != "remote" else "Ollama (2080ti)",
+                key="selected_provider_type",
                 disabled=not st.session_state.auto_summary_enabled
             )
             
-            if selected_server_label != current_host_type:
-                 llm_manager.set_host_type(selected_server_label)
-                 st.toast(f"Switched server to {selected_server_label}")
+            if selected_provider_label != current_provider:
+                 llm_manager.set_provider(selected_provider_label)
+                 st.toast(f"Switched provider to {selected_provider_label}")
                  st.session_state.available_models = llm_manager.get_models()
                  st.rerun()
 
@@ -97,22 +98,30 @@ def render_sidebar(llm_manager, fetcher):
         st.caption("**AI Server Status**")
         col_stat1, col_stat2 = st.columns([1,1])
         with col_stat1:
-            if st.button("Check", key="check_ollama", use_container_width=True):
-                st.session_state.available_models = llm_manager.get_models()
-                success, msg = llm_manager.check_connection()
-                if success:
-                    st.toast(f"Connected! Found {len(st.session_state.available_models)} models.")
-                else:
-                    st.toast(msg)
+            if st.button("Check Status", key="check_ollama", use_container_width=True):
+                with st.spinner("Checking..."):
+                    # 1. Update Models
+                    st.session_state.available_models = llm_manager.get_models()
+                    
+                    # 2. Check Connection
+                    success, msg = llm_manager.check_connection()
+                    if success:
+                        st.toast(f"Connected! Found {len(st.session_state.available_models)} models.")
+                    else:
+                        st.toast(msg)
+                    
+                    # 3. Check GPU (Only on manual check)
+                    st.session_state.gpu_info = llm_manager.get_gpu_info()
         
         with col_stat2:
             st.write("") 
 
-        st.caption(f"**Host:** {llm_manager.current_host}")
+        st.caption(f"**Host:** {llm_manager.current_host_label}")
 
-        gpu_info = llm_manager.get_gpu_info()
-        if gpu_info:
-            # 에러 메시지가 리스트에 포함된 경우 확인
+        # Display Cached GPU Info
+        if 'gpu_info' in st.session_state and st.session_state.gpu_info:
+            gpu_info = st.session_state.gpu_info
+            # Check if error message
             if len(gpu_info) == 1 and any(x in gpu_info[0] for x in ["Error", "SSH", "Key"]):
                  st.caption(f"**GPU Check:** {gpu_info[0]}")
             else:
@@ -120,8 +129,6 @@ def render_sidebar(llm_manager, fetcher):
                 names = set(gpu_info)
                 name_str = ", ".join(names)
                 st.caption(f"**GPU:** {count} Cards ({name_str})")
-        else:
-            st.caption("**GPU:** check skipped or empty.")
 
         st.markdown("---")
         st.caption("**Server Data Usage (Today)**")

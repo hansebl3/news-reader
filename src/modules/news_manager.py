@@ -550,7 +550,7 @@ Summarize the content below into 3 bullet points.
         end_time = time.time()
         elapsed = round(end_time - start_time, 2)
         
-        current_host = self.llm_manager.current_host
+        current_host = self.llm_manager.current_host_label
         
         # 지속성을 위해 요약에 메타데이터 바닥글 추가
         # "작은" 느낌을 위해 마크다운 기울임꼴 사용
