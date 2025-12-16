@@ -531,7 +531,7 @@ class NewsFetcher:
         
         # 작은 모델(0.5b)을 위한 더 강력한 프롬프트
         prompt = f"""### System:
-You are a summary assistant. Output ONLY the summary in Korean. Do not say anything else.
+You are a summary assistant. Output ONLY the summary in English. Do not say anything else.
 
 ### Instruction:
 Summarize the content below into 3 bullet points.

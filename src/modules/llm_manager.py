@@ -10,17 +10,32 @@ logger = logging.getLogger(__name__)
 
 class LLMManager:
     def __init__(self):
-        # Providers: 'remote' (Ollama 2080ti), 'openai', 'gemini'
-        self.providers = ["remote", "openai", "gemini"]
-        self.ollama_host = "http://2080ti.tail8b1392.ts.net:11434"
         self.ssh_key_path = os.path.expanduser('~/.ssh/id_ed25519')
         self.ssh_host = 'ross@2080ti.tail8b1392.ts.net'
         
-        # Load Config
+        # Load Config & Providers
         self.config = self.get_config()
+        self._load_providers()
+        
         self.selected_provider = self.config.get("selected_provider", "remote")
         if self.selected_provider not in self.providers:
-            self.selected_provider = "remote"
+            # Fallback to first available or remote
+            if "remote" in self.providers:
+                self.selected_provider = "remote"
+            else:
+                 self.selected_provider = self.providers[0] if self.providers else "openai"
+
+    def _load_providers(self):
+        self.config = self.get_config()
+        self.custom_providers = self.config.get("custom_providers", [])
+        
+        # Helper to find provider by name
+        self.provider_map = {p['name']: p for p in self.custom_providers}
+        
+        # Basic Cloud Providers
+        self.cloud_providers = ["openai", "gemini"]
+        
+        self.providers = list(self.provider_map.keys()) + self.cloud_providers
 
     def get_config(self):
         config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "llm_config.json")
@@ -53,32 +68,51 @@ class LLMManager:
 
     @property
     def current_host_label(self):
-        if self.selected_provider == "remote":
-            return f"Ollama ({self.ollama_host})"
+        if self.selected_provider in self.provider_map:
+            p = self.provider_map[self.selected_provider]
+            return p.get('display_name', f"{p['name']} ({p['url']})")
         return f"Cloud API ({self.selected_provider})"
 
     def get_context_default_model(self):
         """Returns default model for current provider."""
         config = self.get_config()
         # Fallback for old config keys
-        if self.selected_provider == "remote":
-             return config.get("default_model_remote")
+        if self.selected_provider in self.provider_map:
+             return config.get(f"default_model_{self.selected_provider}")
         return config.get(f"default_model_{self.selected_provider}")
 
     def set_context_default_model(self, model_name):
         """Sets default model for current provider."""
         key = f"default_model_{self.selected_provider}"
-        if self.selected_provider == "remote": key = "default_model_remote"
         self.update_config(key, model_name)
 
     def check_connection(self):
         """Checks connection to current provider."""
-        if self.selected_provider == "remote":
+        if self.selected_provider in self.provider_map:
+            p = self.provider_map[self.selected_provider]
+            url = p['url']
+            p_type = p.get('type', 'ollama')
+            
             try:
-                resp = requests.get(f"{self.ollama_host}/api/tags", timeout=2)
-                if resp.status_code == 200:
-                    return True, f"Connected to {self.ollama_host}"
-                return False, f"Status: {resp.status_code}"
+                if p_type == 'ollama':
+                    resp = requests.get(f"{url}/api/tags", timeout=2)
+                    if resp.status_code == 200:
+                        return True, f"Connected to {p['name']}"
+                    return False, f"Status: {resp.status_code}"
+                elif p_type == 'openai':
+                    # Check models endpoint for OpenAI compatible
+                    resp = requests.get(f"{url}/models", timeout=2) # Often no /v1 prefix needed if base has it, or /v1/models
+                    # Wait, config url has /v1 usually for OpenAI compatible.
+                    # Standard is GET /v1/models
+                    # If config url is .../v1, then just /models might work? 
+                    # Let's try appending /models if it doesn't end with it.
+                    target = f"{url}/models"
+                    resp = requests.get(target, timeout=2)
+                    if resp.status_code == 200:
+                        return True, f"Connected to {p['name']}"
+                    return False, f"Status: {resp.status_code}"
+                    
+                return False, f"Unknown local type: {p_type}"
             except Exception as e:
                 return False, f"Connection Failed: {e}"
         else:
@@ -90,11 +124,25 @@ class LLMManager:
 
     def get_models(self):
         """Returns available models for current provider."""
-        if self.selected_provider == "remote":
+        if self.selected_provider in self.provider_map:
+            p = self.provider_map[self.selected_provider]
+            url = p['url']
+            p_type = p.get('type', 'ollama')
+            
             try:
-                resp = requests.get(f"{self.ollama_host}/api/tags", timeout=5)
-                if resp.status_code == 200:
-                    return [m['name'] for m in resp.json().get('models', [])]
+                if p_type == 'ollama':
+                    resp = requests.get(f"{url}/api/tags", timeout=5)
+                    if resp.status_code == 200:
+                        return [m['name'] for m in resp.json().get('models', [])]
+                elif p_type == 'openai':
+                    resp = requests.get(f"{url}/models", timeout=5)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        # OpenAI format: { data: [ {id: ...}, ... ] }
+                        if 'data' in data:
+                            return [m['id'] for m in data['data']]
+                        # Some local endpoints might just return list
+                        return [str(m) for m in data]
             except Exception:
                 pass
             return []
@@ -112,8 +160,14 @@ class LLMManager:
         tracker = DataUsageTracker()
         
         try:
-            if self.selected_provider == "remote":
-                return self._call_ollama(prompt, model, stream, tracker)
+            if self.selected_provider in self.provider_map:
+                p = self.provider_map[self.selected_provider]
+                if p.get('type') == 'openai':
+                     return self._call_openai_compatible(prompt, model, stream, tracker, p['url'])
+                else:
+                     # Default to ollama
+                     return self._call_ollama(prompt, model, stream, tracker, p['url'])
+
             elif self.selected_provider == "openai":
                 return self._call_openai(prompt, model, stream, tracker)
             elif self.selected_provider == "gemini":
@@ -125,7 +179,7 @@ class LLMManager:
         
         return "Error: Unknown Provider"
 
-    def _call_ollama(self, prompt, model, stream, tracker):
+    def _call_ollama(self, prompt, model, stream, tracker, base_url):
         payload = {
             "model": model,
             "prompt": prompt,
@@ -134,21 +188,12 @@ class LLMManager:
         }
         tracker.add_tx(len(json.dumps(payload)))
         
-        response = requests.post(f"{self.ollama_host}/api/generate", json=payload, stream=stream, timeout=120)
+        response = requests.post(f"{base_url}/api/generate", json=payload, stream=stream, timeout=120)
         response.raise_for_status()
         
         if stream:
              tracker.add_rx(len(response.content)) # Approx
-             # Return generator? The caller (News_Reader) currently expects text or handles stream?
-             # News_Reader `generate_summary` (worker) might expect text. 
-             # Looking at News_Reader.py: `auto_sum_worker` -> `fetcher.generate_summary` -> `llm.generate_response`.
-             # It seems it handles string return. Stream support in News Reader is not main priority or is handled by gathering lines.
-             # The original code gathered text if stream=True: "res_text = result.get('response')..."
-             # Wait, original code for stream=True returned `res_text` from ONE chunk? 
-             # No, loop was missing in `generate_response` for `stream=True` in original code (lines 145-148).
-             # It just returned `response.json().get("response")`. This implies it wasn't really streaming or I misread.
-             # Actually `News_Reader` only uses it for summary which is usually non-streamed (batch).
-             # I will stick to non-streaming return for simplicity unless forced.
+             # See notes below regarding stream
              pass
         
         # Non-streaming handling (or aggregating stream)
@@ -164,6 +209,25 @@ class LLMManager:
              
         tracker.add_rx(len(full_text))
         return full_text
+
+    def _call_openai_compatible(self, prompt, model, stream, tracker, base_url):
+        """Calls an OpenAI-compatible endpoint (like LM Studio)."""
+        url = f"{base_url}/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        # Some local servers might need a dummy key
+        headers["Authorization"] = "Bearer local-key"
+        
+        messages = [{"role": "user", "content": prompt}]
+        payload = {"model": model, "messages": messages, "stream": False} # Force False
+        
+        tracker.add_tx(len(json.dumps(payload)))
+        r = requests.post(url, headers=headers, json=payload, timeout=120)
+        r.raise_for_status()
+        
+        res = r.json()
+        text = res['choices'][0]['message']['content']
+        tracker.add_rx(len(r.content))
+        return text
 
     def _call_openai(self, prompt, model, stream, tracker):
         api_key = self.get_config().get("api_keys", {}).get("openai")
@@ -206,7 +270,7 @@ class LLMManager:
 
     def get_gpu_info(self):
         if self.selected_provider != "remote":
-            return [f"Cloud Provider: {self.selected_provider.upper()}", "No GPU Info"]
+            return [f"Detailed GPU info only for 'remote' host"]
             
         if not os.path.exists(self.ssh_key_path):
             return [f"SSH Key Not Found"]
