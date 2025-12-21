@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class LLMManager:
     def __init__(self):
         self.ssh_key_path = os.path.expanduser('~/.ssh/id_ed25519')
-        self.ssh_host = 'ross@2080ti.tail8b1392.ts.net'
+        self.ssh_host = 'ross@192.168.1.238'
         
         # Load Config & Providers
         self.config = self.get_config()

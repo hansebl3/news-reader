@@ -50,9 +50,10 @@ def render_sidebar(llm_manager, fetcher):
             
             selected_provider_label = st.radio(
                 "LLM Provider",
-                provider_options,
+                options=provider_options, 
                 index=p_index,
-                format_func=lambda x: x.upper() if x != "remote" else "Ollama (2080ti)",
+                format_func=lambda x: x.upper() if x != "remote" else "Llama.cpp (2080linux)",
+                label_visibility="collapsed",
                 key="selected_provider_type",
                 disabled=not st.session_state.auto_summary_enabled
             )
@@ -88,7 +89,7 @@ def render_sidebar(llm_manager, fetcher):
                     st.session_state.result_queue = queue.Queue()
             else:
                 st.warning("AI Models: Not Connected")
-                st.caption(f"Host: {llm_manager.current_host}")
+                st.caption(f"Host: {llm_manager.current_host_label}")
                 if st.button("Retry Connection"):
                     st.session_state.available_models = llm_manager.get_models()
                     st.rerun()
